@@ -1,7 +1,6 @@
 # Can LLM Verifiers Be Gamed?
 
-Code, data and stored results for *Can LLM Verifiers Be Gamed? Accuracy, Corrections, and Content-Free
-Attacks in Biomedical Multi-Agent Pipelines* (DTSC 5525, Milestone 3; Zhenni Liang and Umme Israt Afroz).
+Code, data and stored results for *Can LLM Verifiers Be Gamed? Accuracy, Corrections, and Content-Free Attacks in Biomedical Multi-Agent Pipelines.
 
 The project scores small open-weight language models acting as verifiers against expert answer keys
 (PubMedQA, MedQA-USMLE, MedMCQA) under position, length, authorship and content-free manipulations, and
