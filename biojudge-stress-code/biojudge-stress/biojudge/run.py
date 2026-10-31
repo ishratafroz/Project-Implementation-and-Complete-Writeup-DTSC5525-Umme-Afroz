@@ -93,8 +93,17 @@ def main():
     ap.add_argument("--stages", default=",".join(STAGES[1:]),
                     help=f"comma-separated subset of {STAGES}")
     ap.add_argument("--estimate", action="store_true", help="print call/token counts and exit")
+    ap.add_argument("--split", choices=["eval", "dev"], help="with data.preprocess: run the development set")
+    ap.add_argument("--batch", type=int, choices=[1, 2], help="with data.preprocess: run one fixed batch only")
     a = ap.parse_args()
     cfg = load_config(a.config)
+    if a.split:
+        cfg["data"]["use_split"] = a.split
+        if a.split == "dev":   # keep pilot outputs and their cache away from the evaluation run
+            cfg["run_name"] += "_dev"
+    if a.batch:
+        cfg["data"]["batch"] = a.batch
+        cfg["run_name"] += f"_batch{a.batch}"
     if a.estimate:
         _print_estimate(cfg)
         return

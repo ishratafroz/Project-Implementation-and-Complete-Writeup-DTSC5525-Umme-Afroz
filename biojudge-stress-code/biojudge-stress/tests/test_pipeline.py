@@ -171,3 +171,78 @@ def test_report_builds(mock_run, tmp_path):
     assert os.path.exists(tmp_path / "results_macros.tex")
     assert os.path.exists(tmp_path / "figs" / "fig_delta.pdf")
     assert "AccBase" in M and "KWVB" in M
+
+
+# ---------------------------------------------------------------- data-model plan (M3)
+def test_rationale_word_bound():
+    long = " ".join(["word"] * 260) + "\nFinal answer: C"
+    assert validate_rationale(long, "C")[0]                       # stored-run behaviour is unchanged
+    assert validate_rationale(long, "C", max_words=250)[1] == "too_long"
+
+
+def test_preprocess_splits_are_disjoint_and_batched():
+    from biojudge.data import Item, clean_text, preprocess_domain
+    assert clean_text("a\u00a0 b\t c ") == "a b c"
+
+    def mk(i, q):
+        return Item(item_id=f"i{i}", domain="d", source="s", question=q, options={"A": "x", "B": "y"}, gold="A")
+    words_ = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi".split()
+    items = [mk(i, f"{words_[i]} question about {words_[(i + 5) % 14]} and {words_[(i + 9) % 14]}") for i in range(14)]
+    items.insert(3, mk(99, items[0].question))                     # an exact duplicate must be removed
+    ev, dev, dropped = preprocess_domain(items, 10, 4)
+    assert dropped == 1 and len(ev) == 10 and len(dev) == 4
+    assert not {x.item_id for x in ev} & {x.item_id for x in dev}
+    assert [x.meta["batch"] for x in ev].count(1) == 5
+
+
+# ---------------------------------------------------------------- M3 analyses
+def _unit_frame(n_items=60, beta=-0.2, seed=1):
+    """Verdicts with a planted length effect of `beta` per log unit, for a known answer."""
+    import numpy as np
+    import pandas as pd
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i in range(n_items):
+        for length, lr in (("none", 0.0), ("pad_wrong", 0.9), ("pad_right", -0.9)):
+            for slot in "AB":
+                for j in ("a", "b"):
+                    p = 0.6 + beta * lr
+                    rows.append(dict(protocol="base_raw", block="bias", item_id=f"i{i}", pair_idx=0, judge=j,
+                                     length_cond=length, correct_slot=slot,
+                                     is_correct=float(rng.random() < p),
+                                     len_correct=100, len_wrong=int(round(100 * np.exp(lr)))))
+    return pd.DataFrame(rows)
+
+
+def test_length_controlled_recovers_planted_slope():
+    from biojudge.m3_analysis import length_controlled
+    d = _unit_frame(n_items=400)   # large enough that sampling noise cannot explain a miss
+    r = length_controlled(Boot(d.item_id.unique(), 200, 3), d, "base_raw")
+    assert abs(r["beta"].point - (-0.2)) < 0.03
+    # the clean pairs already have equal lengths, so controlling for length must change nothing
+    assert abs(r["gain"].point) < 1e-9
+
+
+def test_prefer_longer_scores_the_heuristic():
+    from biojudge.m3_analysis import prefer_longer
+    d = _unit_frame(n_items=5)
+    r = prefer_longer(Boot(d.item_id.unique(), 50, 3), d)
+    assert r["acc_none"].point == 0.5 and r["acc_pad_right"].point == 1.0 and r["acc_pad_wrong"].point == 0.0
+
+
+def test_transfer_detects_perfect_rank_association():
+    import numpy as np
+    from biojudge.analysis import Est
+    from biojudge.m3_analysis import transfer
+    g = {str(k): {"dacc": Est(k / 100, np.full(50, k / 100) + np.arange(50) * 1e-6),
+                  "drob": Est(k / 50, np.full(50, k / 50) + np.arange(50) * 1e-6)} for k in range(1, 7)}
+    r = transfer(g, seed=1, n_perm=500)
+    assert r["rho"] == pytest.approx(1.0) and len(r["both_positive"]) == 6
+
+
+def test_natural_error_pairs_needs_the_authors_own_mistake():
+    import pandas as pd
+    from biojudge.m3_analysis import natural_error_pairs
+    solo = pd.DataFrame([dict(item_id="x", model="m1", pred="B"), dict(item_id="x", model="m2", pred="A"),
+                         dict(item_id="x", model="m3", pred=None)])
+    assert natural_error_pairs(solo, [dict(item_id="x", distractor="B")]) == {("x", "m1")}

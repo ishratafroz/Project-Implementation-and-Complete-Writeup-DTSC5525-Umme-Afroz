@@ -1,0 +1,14 @@
+{
+  "seconds": 1164.2217235565186,
+  "n": 1168,
+  "llm_stats": {
+    "ok:llama": 292,
+    "ok:qwen": 292,
+    "ok:gemma": 292,
+    "ok:mistral": 292
+  },
+  "provenance": {
+    "ollama_version": "0.40.13",
+    "host_judge": "laptop, 1x NVIDIA RTX 3050 (6 GB), Windows 11"
+  }
+}

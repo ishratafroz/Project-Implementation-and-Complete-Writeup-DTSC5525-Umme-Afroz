@@ -1,0 +1,51 @@
+# The placebo floor for deterministic normalization (scripts/run_strip_placebo.py). Same run dir, same
+# five model digests as configs/ollama_l40s_ctrl.yaml; only the host differs (RTX 3050 laptop, Ollama
+# 0.40.13, 4 slots, one model resident at a time), so judges run one after another.
+run_name: local
+out_dir: runs
+seed: 2026
+
+data:
+  domains:
+    literature:   {source: pubmedqa,      n: 25}
+    clinical:     {source: medqa,         n: 25}
+    pharmacology: {source: medmcqa_pharm, n: 25}
+  distractor: hard
+
+_ollama: &ol
+  provider: openai
+  base_url: http://127.0.0.1:11435/v1
+  api_key_env: OLLAMA_API_KEY
+
+models:
+  llama:   {<<: *ol, model: "llama3.2:3b",    family: llama,   display: Llama-3.2-3B}
+  qwen:    {<<: *ol, model: "qwen2.5:3b",     family: qwen,    display: Qwen2.5-3B}
+  gemma:   {<<: *ol, model: "gemma2:2b",      family: gemma,   display: Gemma-2-2B, merge_system: true}
+  mistral: {<<: *ol, model: "ministral-3:3b", family: mistral, display: Ministral-3-3B}
+  phi:     {<<: *ol, model: "phi4-mini",      family: phi,     display: Phi-4-mini}
+
+roles:
+  generators: [llama, qwen, gemma, mistral]
+  judges:     [llama, qwen, gemma, mistral]
+  utility: phi
+
+experiment:
+  protocols: [base_strip]
+  attacks: []
+  attacks_control: [placebo]
+  control_protocols: [base_strip]
+  attacks_sym: []
+  attack_pairs_per_item: 2
+  pad_mode: llm
+  pad_ratio: 2.5
+  select: {enabled: false, protocols: [base_raw]}
+
+runtime:
+  concurrency: 4
+  request_timeout: 300
+  max_api_retries: 4
+  interleave_models: false
+
+provenance:
+  ollama_version: "0.40.13"
+  host_judge: "laptop, 1x NVIDIA RTX 3050 (6 GB), Windows 11"

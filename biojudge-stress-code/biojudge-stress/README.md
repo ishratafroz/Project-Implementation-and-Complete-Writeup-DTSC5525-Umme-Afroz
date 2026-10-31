@@ -1,111 +1,164 @@
-# BioJudge-Stress
+# Can LLM Verifiers Be Gamed?
 
-Stress-testing LLM judges as verifier agents in biomedical multi-agent pipelines: position, verbosity and
-self-preference bias, their interactions, content-free attacks, corrections, and best-of-N selection, all scored
-against expert answer keys (PubMedQA, MedQA-USMLE, MedMCQA).
+Code, data and stored results for *Can LLM Verifiers Be Gamed? Accuracy, Corrections, and Content-Free
+Attacks in Biomedical Multi-Agent Pipelines* (DTSC 5525, Milestone 3; Zhenni Liang and Umme Israt Afroz).
 
-## Install
+The project scores small open-weight language models acting as verifiers against expert answer keys
+(PubMedQA, MedQA-USMLE, MedMCQA) under position, length, authorship and content-free manipulations, and
+asks whether corrections that raise accuracy also make a verifier harder to manipulate.
 
-```bash
-pip install -r requirements.txt          # or: pip install numpy pandas scipy statsmodels pyyaml matplotlib openai anthropic
-```
+**To check the results you need no GPU and no model.** Every number, table and figure regenerates from the
+stored verdicts in `runs/local/`; see *Quick start*.
 
-## Run
+## 1. Environment setup
 
-```bash
-export OPENROUTER_API_KEY=...            # any OpenAI-compatible gateway; see configs/openrouter.yaml
+| | |
+|---|---|
+| Operating system | Windows 11 or Linux (verified on both). macOS should work but is untested. |
+| Python | 3.12 (results produced on 3.12.13 and re-verified on 3.12.7) |
+| Libraries | exact versions pinned in `requirements.txt` |
+| IDE | none required; VS Code is what we used |
+| GPU | none for analysis; see section 5 for new model runs |
 
-python -m biojudge.run --config configs/openrouter.yaml --estimate   # token/call budget, no API calls
-python -m biojudge.run --config configs/pilot.yaml                   # 10 items/domain smoke test — do this first
-python -m biojudge.run --config configs/openrouter.yaml              # main run (resumable; everything is cached)
-
-python -m biojudge.report --run runs/main --config configs/openrouter.yaml --paper paper/
-python scripts/export_prompts.py --out paper/prompts_appendix.tex
-cd paper && latexmk -pdf main.tex
-```
-
-`configs/vllm_local.yaml` runs the same design against five local vLLM servers.
-`configs/mock.yaml` runs the whole pipeline offline against a simulator with planted biases (no API keys, ~30 s) —
-used to validate the estimators; its numbers are never results.
-
-Stages can be run separately: `--stages items,solo,generate,perturb,judge,select`.
-
-## Controls and ablations
-
-The attack conditions mean nothing on their own, because a near-chance judge changes its mind under any
-edit. Four conditions separate persuasion from churn; each is switched on in the config and judged only
-under the protocols its question needs, so none of them costs a full crossing:
-
-```yaml
-experiment:
-  protocols:         [base_raw, debias_raw, base_norm, debias_norm, base_strip]
-  attacks_control:   [placebo, consensus]      # on R-: no-cue floor, and a cue the normaliser never saw
-  control_protocols: [base_raw, debias_raw, base_norm, debias_norm]
-  attacks_sym:       [authority, citation, format, confidence, injection]   # the same edits on R+
-  sym_protocols:     [base_raw]
-```
-
-`base_strip` shows the judge a deterministic strip of markup and bracketed text instead of the LLM
-rewrite, which isolates what the rewrite itself contributes. `biojudge.analysis` reports, for every
-edit, the attack success rate, the repair rate (clean-wrong verdicts the edit makes right), the net and
-placebo-adjusted rates, the accuracy the edit actually costs, and the symmetric rate.
-
-## Reproducibility checks
+With [uv](https://docs.astral.sh/uv/) (recommended):
 
 ```bash
-python scripts/redecode.py --config configs/ollama_l40s_ctrl.yaml --run runs/local    # temp-0 is not bit-reproducible
-python scripts/audit_parse_failures.py --config configs/ollama_l40s_ctrl.yaml --run runs/local
-python scripts/solo_utility.py --config configs/ollama_l40s_ctrl.yaml --run runs/local
+uv venv --python 3.12 .venv
+# Windows:      .venv\Scripts\activate
+# Linux/macOS:  source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
-`redecode.py` asks every clean pair a second time and reports how often the text and the verdict repeat;
-`audit_parse_failures.py` re-issues unparseable verdicts and records the server's `finish_reason`;
-`solo_utility.py` measures the utility model's own competence without touching the distractor choice.
+With plain pip: create a Python 3.12 virtual environment, activate it, and run `pip install -r requirements.txt`.
 
-## Building the manuscript
-
-The manuscript is a template whose every number is a named slot, filled from the run:
+## 2. Quick start: regenerate everything (no GPU, about 4 minutes)
 
 ```bash
-python scripts/fill_paper.py --metrics runs/local/results/metrics.json \
-    --template paper/biojudge_stress_template.tex --out ../../biojudge_stress.tex \
-    --report runs/local/results/paper_values.tsv
-python scripts/check_paper_numbers.py --template paper/biojudge_stress_template.tex \
-    --config configs/ollama_l40s_ctrl.yaml --metrics runs/local/results/metrics.json
+python scripts/reproduce_m3.py          # add --tests to run the offline test suite first (about 2 minutes)
 ```
 
-`fill_paper.py` refuses to write if a slot does not resolve, and `check_paper_numbers.py` flags any
-number typed into the prose that no config value or computed result accounts for.
+This runs three steps, each of which can also be run alone:
 
-## Layout
-
-```
-biojudge/config.py      YAML config + validation (families must differ; utility model outside judge families)
-biojudge/data.py        PubMedQA / MedQA / MedMCQA loaders -> lettered single-best-answer items with a gold key
-biojudge/prompts.py     every prompt template, in one file so the paper appendix quotes them verbatim
-biojudge/textutil.py    answer extraction, rationale validation, verdict parsing
-biojudge/perturb.py     the six deterministic content-free edits, template padding, fallback normalizer
-biojudge/llm.py         async client with SQLite cache, retries, concurrency; openai / anthropic / mock providers
-biojudge/pipeline.py    stages: solo -> hard negatives -> forced-answer rationales -> perturb -> judge -> select
-biojudge/analysis.py    metrics (Acc, kappa, Flip, PPI, VB, SPB, IC, ASR), views (swap, jury, recusal),
-                        item-level cluster bootstrap, LPM with clustered SEs, Kendall's W
-biojudge/report.py      writes paper/results_macros.tex, paper/tables/*.tex, paper/figs/*.pdf, runs/<run>/results/*
-biojudge/mock.py        deterministic simulator with planted biases (validation only)
-tests/test_pipeline.py  12 tests incl. an end-to-end mock run that must recover the planted effects
-paper/                  IEEE two-column LaTeX (main.tex), refs.bib, auto-generated macros/tables/figures
-paper/paper_text.md     the same paper as plain text with fill-in tokens
+```bash
+python -m biojudge.report      --run runs/local --config configs/ollama_l40s_ctrl.yaml --paper paper   # base metrics, tables, figures
+python -m biojudge.m3_analysis --run runs/local --config configs/ollama_l40s_ctrl.yaml --paper paper   # baselines, G, RQ4, RQ5, length control, TOST
+python scripts/build_m3_docx.py --out "Project-Implementation and Complete Writeup-DTSC5525-Umme Afroz.docx"
 ```
 
-## Run outputs
+Outputs appear in `runs/local/results/` (`metrics.json`, `m3_metrics.json`, CSV files) and `paper/figs/`.
+`build_m3_docx.py` fills the paper from those files and stops without writing if any number cannot be resolved.
 
-`runs/<name>/` holds `items.jsonl`, `solo.jsonl`, `responses.jsonl`, `variants.jsonl`, `trials.jsonl`,
-`select.jsonl`, `run_meta.json` and `cache.sqlite`; `runs/<name>/results/` holds `metrics.json`, `per_judge.csv`,
-`corrections.csv` and `regression.csv`.
+To see the whole pipeline run end to end with no GPU, use the simulator (about 1 minute). Its numbers are
+**never** results; it exists to confirm that the estimators recover biases of known size:
 
-## Before the main run
+```bash
+python -m biojudge.run --config configs/mock.yaml --stages items,solo,generate,perturb,judge,select
+python -m biojudge.report --run runs/mock --config configs/mock.yaml --paper runs/mock/paper
+python -m biojudge.m3_analysis --run runs/mock --config configs/mock.yaml --paper runs/mock/paper
+```
 
-1. Confirm the model identifiers in `configs/openrouter.yaml` — provider IDs change; record the exact IDs and the
-   run date in the paper.
-2. Run the pilot and check three things: refusal rate on forced-incorrect rationales, verdict parse rate, and
-   whether the padding agent is adding content it should not.
-3. `--estimate` prints the call and token budget (about 392k calls, 357M input / 49M output tokens for 300 items).
+## 3. Project structure
+
+```
+biojudge/                 the package
+  config.py               YAML configuration and validation
+  data.py                 benchmark loaders, cleaning, de-duplication, development split, batches
+  prompts.py              every prompt template
+  textutil.py             answer extraction, rationale validation, verdict parser
+  perturb.py              content-free edits, placebo, held-out cue, padding, deterministic normalizer
+  llm.py                  asynchronous client with SQLite cache and retries
+  pipeline.py             stages: solo -> distractors -> generate -> perturb -> judge -> select
+  analysis.py             metrics, aggregation views, cluster bootstrap, regression
+  report.py               base tables, figures and metrics.json
+  m3_analysis.py          baselines, gameability, RQ4, RQ5, length-controlled correction, equivalence tests
+  mock.py                 simulator with planted biases (validation only)
+  run.py                  command-line entry point
+configs/
+  ollama_l40s_ctrl.yaml   the configuration of record for the stored run (75 items)
+  ollama_laptop_strip_placebo.yaml   the added control: placebo under deterministic normalization
+  m2_full_design.yaml     the full Milestone 2 design (150 items, dev set, two batches); not yet run
+  mock.yaml               offline simulator
+data_cache/ori_pqal.json  PubMedQA labeled subset (included; MIT license)
+runs/local/               stored items, rationales, text variants, verdicts, selections and the call cache
+paper/                    Word paper template, figures, tables
+scripts/                  reproduce_m3.py, build_m3_docx.py, run_strip_placebo.py, redecode.py,
+                          audit_parse_failures.py, solo_utility.py, and helpers for the earlier LaTeX draft
+tests/test_pipeline.py    offline tests, including an end-to-end simulator run
+```
+
+Files in `runs/local/`: `items.jsonl` (75 sampled items), `solo.jsonl` (each model's own answers),
+`responses.jsonl` (600 rationales), `variants.jsonl` (14,892 text variants), `trials.jsonl` (85,264 pairwise
+verdicts), `select.jsonl` (7,008 selections), `strip_placebo.jsonl` (1,168 added verdicts), `host_check.jsonl`
+(1,168 re-judged verdicts, used only to compare hosts), `retest.jsonl` (repeat decodes), `model_tags.json`
+(pinned digests), `cache.sqlite` (every call).
+
+## 4. Data preparation
+
+No step is needed to regenerate results: the sampled items are stored in `runs/local/items.jsonl`.
+
+To draw items afresh, the loaders fetch the data on first use:
+
+| Benchmark | Source | License | How it is obtained |
+|---|---|---|---|
+| PubMedQA, PQA-L | `github.com/pubmedqa/pubmedqa`, `data/ori_pqal.json` | MIT | included as `data_cache/ori_pqal.json`; downloaded if missing |
+| MedQA-USMLE, 4 options | Hugging Face `GBaker/MedQA-USMLE-4-options`, test split | CC BY 4.0 | `datasets` library, on first use |
+| MedMCQA | Hugging Face `openlifescienceai/medmcqa`, validation split, Pharmacology | Apache-2.0 | `datasets` library, on first use |
+
+Each item is converted to a lettered single-best-answer question in `biojudge/data.py`. `data.preprocess: true`
+(in `m2_full_design.yaml`) adds Unicode and whitespace cleaning, near-duplicate removal, and a disjoint
+development split. The stored run predates that option and does not use it.
+
+There is no training step: no model is trained or fine-tuned.
+
+## 5. Running models again (optional; needs a GPU)
+
+1. Install [Ollama](https://ollama.com) and pull the models. Digests are in `runs/local/model_tags.json`:
+
+   ```bash
+   ollama pull llama3.2:3b && ollama pull qwen2.5:3b && ollama pull gemma2:2b
+   ollama pull ministral-3:3b && ollama pull phi4-mini
+   ```
+
+2. Set `base_url` in the configuration to your server. The cache key excludes the host, so calls already in
+   `cache.sqlite` are not repeated. The stored run needs only its missing calls.
+
+   ```bash
+   export OLLAMA_API_KEY=EMPTY    # Windows PowerShell: $env:OLLAMA_API_KEY = "EMPTY"
+   python -m biojudge.run --config configs/ollama_l40s_ctrl.yaml --estimate
+   python -m biojudge.run --config configs/ollama_l40s_ctrl.yaml --stages solo,generate,perturb,judge,select
+   ```
+
+3. The added control: `python scripts/run_strip_placebo.py --config configs/ollama_laptop_strip_placebo.yaml`.
+   `--host-check` re-judges the base-protocol placebo for comparison between machines.
+
+4. The full design has not been run on real models. Use `--split dev` for the pilot, then `--batch 1` and
+   `--batch 2`; the commands are at the top of `configs/m2_full_design.yaml`.
+
+Every call is cached, so re-running a stopped command loses nothing. Greedy decoding is not bit-reproducible on
+this stack, so uncached calls will differ slightly even with the same seed. Reproducibility of the reported
+numbers comes from the stored verdicts.
+
+### Approximate runtimes
+
+| Task | Hardware | Time |
+|---|---|---|
+| Regenerate all analysis and the paper | any CPU | about 4 minutes |
+| Offline tests (23) | any CPU | about 2 minutes |
+| Padding and normalization, 75 items | RTX 3050, 6 GB | about 2.4 hours |
+| Main judging and selection (about 61,500 calls) | 3 x NVIDIA L40S | about 1.7 hours (10 calls per second) |
+| Controls (about 30,800 calls) | 3 x NVIDIA L40S | about 1 hour |
+| Added placebo, and the host check (1,168 calls each) | RTX 3050, 6 GB | about 20 minutes each (1 call per second) |
+| Full 150-item design (about 207,600 calls) | 3 x NVIDIA L40S | about 6 hours; a 6 GB laptop would take days |
+
+## 6. Reproducibility
+
+- Seed 2026 fixes item sampling, tie-breaking, the fallback distractor rule, the authorship cycle and the bootstrap.
+- Each configuration file specifies a run completely.
+- Re-running the analysis from stored verdicts on a different operating system reproduced all 8,061 stored numeric values to within 1e-9.
+
+## 7. Older material
+
+`paper/biojudge_stress_template.tex`, `scripts/fill_paper.py` and related scripts build an earlier IEEE LaTeX
+version of this work, organized around different research questions. They are not needed for Milestone 3.
+`configs/openrouter.yaml`, `pilot.yaml`, `vllm_local.yaml`, `ollama_local*.yaml`, and `scripts/run_local.sh` record
+earlier hosting options and were not used for the configuration of record.

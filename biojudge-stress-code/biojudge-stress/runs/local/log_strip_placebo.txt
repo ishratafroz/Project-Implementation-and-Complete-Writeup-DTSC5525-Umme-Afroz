@@ -1,0 +1,2 @@
+  [pairwise] 1168/1168  (967s)
+[strip_placebo] 1168 verdicts, 8 parse failures, 967s

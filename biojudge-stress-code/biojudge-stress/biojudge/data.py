@@ -16,6 +16,7 @@ import json
 import os
 import random
 import re
+import unicodedata
 import urllib.request
 from dataclasses import asdict, dataclass, field
 
@@ -160,14 +161,85 @@ LOADERS = {
 }
 
 
+# --------------------------------------------------------------------------- preprocessing (data-model plan)
+def clean_text(text: str) -> str:
+    """Normalize Unicode (NFKC) and whitespace; no wording changes."""
+    return re.sub(r"[ \t]+", " ", unicodedata.normalize("NFKC", text)).strip()
+
+
+def _tokens(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def is_near_duplicate(a: set[str], b: set[str], threshold: float = 0.9) -> bool:
+    """Token-set Jaccard similarity; identical questions score 1.0, so this also catches exact copies."""
+    return bool(a or b) and len(a & b) / len(a | b) >= threshold
+
+
+def dedupe(items: list[Item]) -> tuple[list[Item], int]:
+    """Keep the first item of each near-duplicate group, in the seeded draw order."""
+    kept: list[Item] = []
+    seen: list[set[str]] = []
+    dropped = 0
+    for it in items:
+        toks = _tokens(it.question)
+        if any(is_near_duplicate(toks, s) for s in seen):
+            dropped += 1
+            continue
+        seen.append(toks)
+        kept.append(it)
+    return kept, dropped
+
+
+def preprocess_domain(items: list[Item], n: int, n_dev: int) -> tuple[list[Item], list[Item], int]:
+    """Clean and de-duplicate one benchmark's draw, then split it into evaluation and development items.
+
+    Both splits come from one seeded order, so they are disjoint by construction. Evaluation items are
+    assigned alternately to batch 1 and batch 2, which keeps both batches stratified by benchmark.
+    """
+    for it in items:
+        it.question = clean_text(it.question)
+        it.options = {k: clean_text(str(v)) for k, v in it.options.items()}
+    items, dropped = dedupe(items)
+    evaluation, dev = items[:n], items[n:n + n_dev]
+    for i, it in enumerate(evaluation):
+        it.meta["split"], it.meta["batch"] = "eval", i % 2 + 1
+    for it in dev:
+        it.meta["split"] = "dev"
+    return evaluation, dev, dropped
+
+
 def build_items(cfg: dict) -> list[Item]:
+    """Draw the items of a run.
+
+    With `data.preprocess` false this is the draw of the stored run (configs/ollama_l40s_ctrl.yaml).
+    With it true, the plan in the data-model document applies: cleaning, de-duplication, a disjoint
+    development set (`dev_per_domain`) and two fixed batches, selected through `use_split` and `batch`.
+    """
     dcfg = cfg["data"]
     out: list[Item] = []
+    prep = dcfg.get("preprocess")
+    n_dev = dcfg.get("dev_per_domain", 0) if prep else 0
+    # items already judged in an earlier run stay out, so that a new batch is truly held out
+    seen = set()
+    if dcfg.get("exclude_items_from"):
+        seen = {it.item_id for it in load_items(dcfg["exclude_items_from"])}
     for domain, spec in dcfg["domains"].items():
         rng = random.Random(f"{cfg['seed']}-{domain}")
         loader = LOADERS[spec["source"]]
-        items = loader(spec["n"], rng, domain, path=dcfg.get("pubmedqa_path"), cache_dir=dcfg["cache_dir"])
-        if len(items) < spec["n"]:
+        # over-draw when preprocessing, so de-duplication and the dev split cannot starve the evaluation set
+        want = spec["n"] + n_dev + (dcfg.get("overdraw", 20) + len(seen) if prep else 0)
+        items = loader(want, rng, domain, path=dcfg.get("pubmedqa_path"), cache_dir=dcfg["cache_dir"])
+        if prep:
+            items = [it for it in items if it.item_id not in seen]
+            evaluation, dev, dropped = preprocess_domain(items, spec["n"], n_dev)
+            print(f"[data] {domain}: {len(evaluation)} eval, {len(dev)} dev, {dropped} near-duplicates removed")
+            if dcfg.get("use_split", "eval") == "dev":
+                items = dev
+            else:
+                batch = dcfg.get("batch")
+                items = [it for it in evaluation if batch is None or it.meta["batch"] == batch]
+        elif len(items) < spec["n"]:
             print(f"[data] warning: {domain} yielded {len(items)} < {spec['n']} items")
         out.extend(items)
     return out

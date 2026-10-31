@@ -100,7 +100,7 @@ async def run_generate(cfg, client: LLMClient, items: list[Item]) -> list[dict]:
                 temp = 0.0 if attempt == 0 else g["retry_temperature"]
                 txt = await client.chat(gen, P.GEN_SYSTEM, user, max_tokens=g["max_tokens_generate"],
                                         temperature=temp, task="generate", meta=meta, nonce=attempt)
-                ok, reason = validate_rationale(txt, target)
+                ok, reason = validate_rationale(txt, target, max_words=g.get("rationale_max_words"))
                 if ok:
                     return {"key": vkey(it.item_id, gen, pol, "raw"), "item_id": it.item_id, "gen": gen,
                             "pol": pol, "target": target, "text": txt, "valid": True, "reason": reason,
@@ -259,10 +259,15 @@ def spec_protocols(cfg, spec, protocols: list[str]) -> list[str]:
     return [p for p in protocols if p in allow]
 
 
-async def run_pairwise(cfg, client: LLMClient, items: list[Item], variants: dict, keep: set[str]) -> list[dict]:
+async def run_pairwise(cfg, client: LLMClient, items: list[Item], variants: dict, keep: set[str],
+                       spec_filter=None) -> list[dict]:
+    """Judge every designed pair. `spec_filter` keeps a subset of the design, so that one missing
+    condition can be collected later without re-issuing the rest (scripts/run_strip_placebo.py)."""
     g = cfg["generation"]
     item_by = {it.item_id: it for it in items}
     specs = design_pairwise(cfg, items, keep)
+    if spec_filter is not None:
+        specs = [s for s in specs if spec_filter(s)]
 
     def make(spec, judge, protocol):
         async def f():

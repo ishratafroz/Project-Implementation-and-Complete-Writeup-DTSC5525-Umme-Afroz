@@ -36,8 +36,10 @@ def split_final(text: str) -> tuple[str, str]:
     return t, ""
 
 
-def validate_rationale(text: str | None, target: str, min_words: int = 30) -> tuple[bool, str]:
-    """A forced-answer rationale is valid if it ends on the target and never endorses another option."""
+def validate_rationale(text: str | None, target: str, min_words: int = 30,
+                       max_words: int | None = None) -> tuple[bool, str]:
+    """A forced-answer rationale is valid if it ends on the target, never endorses another option, does
+    not refuse, and has at least `min_words` (and, when set, at most `max_words`) words."""
     if not text:
         return False, "empty"
     t = strip_think(text)
@@ -50,6 +52,8 @@ def validate_rationale(text: str | None, target: str, min_words: int = 30) -> tu
         return False, "refusal"
     if words(t) < min_words:
         return False, "too_short"
+    if max_words is not None and words(t) > max_words:
+        return False, "too_long"
     return True, "ok"
 
 

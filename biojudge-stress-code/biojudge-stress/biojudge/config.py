@@ -20,6 +20,12 @@ DEFAULTS: dict[str, Any] = {
         "distractor": "hard",  # hard | random
         "pubmedqa_path": None,
         "cache_dir": "data_cache",
+        # Data-model plan, off by default so the stored run keeps its exact draw (see data.build_items).
+        "preprocess": False,
+        "dev_per_domain": 0,
+        "exclude_items_from": None,  # path to an earlier run's items.jsonl
+        "use_split": "eval",  # eval | dev
+        "batch": None,        # None = both batches; 1 or 2 = the reduced-scale fallback
     },
     "models": {},
     "roles": {"generators": [], "judges": [], "utility": None},
@@ -46,6 +52,7 @@ DEFAULTS: dict[str, Any] = {
         "max_tokens_judge": 300,
         "max_retries_invalid": 2,
         "retry_temperature": 0.7,
+        "rationale_max_words": None,  # the data-model plan sets 250; the stored run's longest rationale is 214
     },
     "runtime": {"concurrency": 16, "request_timeout": 120, "max_api_retries": 6,
                 "interleave_models": False},  # True when every model stays resident (multi-GPU host)
