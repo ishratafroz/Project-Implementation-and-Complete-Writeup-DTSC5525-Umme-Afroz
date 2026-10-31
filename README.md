@@ -148,13 +148,7 @@ numbers comes from the stored verdicts.
 
 ## 6. Reproducibility
 
-- Seed 2026 fixes item sampling, tie-breaking, the fallback distractor rule, the authorship cycle and the bootstrap.
 - Each configuration file specifies a run completely.
 - Re-running the analysis from stored verdicts on a different operating system reproduced all 8,061 stored numeric values to within 1e-9.
 
-## 7. Older material
 
-`paper/biojudge_stress_template.tex`, `scripts/fill_paper.py` and related scripts build an earlier IEEE LaTeX
-version of this work, organized around different research questions. They are not needed for Milestone 3.
-`configs/openrouter.yaml`, `pilot.yaml`, `vllm_local.yaml`, `ollama_local*.yaml`, and `scripts/run_local.sh` record
-earlier hosting options and were not used for the configuration of record.
