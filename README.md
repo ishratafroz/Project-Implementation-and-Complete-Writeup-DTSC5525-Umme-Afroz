@@ -6,14 +6,11 @@ The project scores small open-weight language models acting as verifiers against
 (PubMedQA, MedQA-USMLE, MedMCQA) under position, length, authorship and content-free manipulations, and
 asks whether corrections that raise accuracy also make a verifier harder to manipulate.
 
-**To check the results you need no GPU and no model.** Every number, table and figure regenerates from the
-stored verdicts in `runs/local/`; see *Quick start*.
-
 ## 1. Environment setup
 
 | | |
 |---|---|
-| Operating system | Windows 11 or Linux (verified on both). macOS should work but is untested. |
+| Operating system | Windows 11  |
 | Python | 3.12 (results produced on 3.12.13 and re-verified on 3.12.7) |
 | Libraries | exact versions pinned in `requirements.txt` |
 | IDE | none required; VS Code is what we used |
